@@ -1,0 +1,30 @@
+{
+  "projectSlug": "wewe-rss",
+  "githubRepo": "cooderl/wewe-rss",
+  "defaultBranch": "main",
+  "serverHost": "tokyo",
+  "serverDir": "/home/ubuntu/services/wewe-rss",
+  "appPort": 4011,
+  "exposure": "domain",
+  "domain": "wewerss.nekokekun.com",
+  "databaseName": "wewe_rss_prod",
+  "databaseUser": "wewe_rss_user",
+  "bucketName": null,
+  "composeFile": "compose.prod.yml",
+  "migrateCommand": "docker compose -f compose.prod.yml run --rm app pnpm db:deploy",
+  "dataMigration": {
+    "database": {
+      "required": true,
+      "sourceType": "old-postgresql",
+      "sourceLocation": null,
+      "canWipe": false
+    },
+    "objectStorage": {
+      "required": false,
+      "sourceType": "local-minio",
+      "sourceLocation": null,
+      "canWipe": false,
+      "note": "当前仓库未发现真实 S3/MinIO 接入代码，若确有历史 MinIO 资产，需要先确认是否属于本项目运行链。"
+    }
+  }
+}

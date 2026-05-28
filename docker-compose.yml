@@ -1,47 +1,44 @@
-version: '3.9'
-
 services:
-  db:
-    image: mysql:8.3.0
-    command: --mysql-native-password=ON
+  postgres:
+    image: postgres:16-alpine
     environment:
-      # 请修改为自己的密码
-      MYSQL_ROOT_PASSWORD: 123456
-      TZ: 'Asia/Shanghai'
-      MYSQL_DATABASE: 'wewe-rss'
-    # ports:
-    #   - 13306:3306
+      POSTGRES_DB: wewe_rss
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      TZ: Asia/Shanghai
+    ports:
+      - 54330:5432
     volumes:
-      - db_data:/var/lib/mysql
+      - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ['CMD', 'mysqladmin', 'ping', '-h', 'localhost']
-      timeout: 45s
-      interval: 10s
+      test: ["CMD-SHELL", "pg_isready -U postgres -d wewe_rss"]
+      timeout: 10s
+      interval: 5s
       retries: 10
 
   app:
-    image: cooderl/wewe-rss:latest
+    build:
+      context: .
+      target: app
+    image: wewe-rss:local
+    depends_on:
+      postgres:
+        condition: service_healthy
     ports:
       - 4000:4000
-    depends_on:
-      db:
-        condition: service_healthy
     environment:
-      # 数据库连接地址
-      - DATABASE_URL=mysql://root:123456@db:3306/wewe-rss?schema=public&connect_timeout=30&pool_timeout=30&socket_timeout=30
-      # 服务接口请求授权码
-      - AUTH_CODE=123567
-      # 提取全文内容模式
-      # - FEED_MODE=fulltext
-      # 定时更新订阅源Cron表达式
-      # - CRON_EXPRESSION=35 5,17 * * *
-      # 服务接口请求限制，每分钟请求次数
-      # - MAX_REQUEST_PER_MINUTE=60
-      # 外网访问时，需设置为服务器的公网 IP 或者域名地址
-      # - SERVER_ORIGIN_URL=http://localhost:4000
-
-networks:
-  wewe-rss:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/wewe_rss?schema=public
+      HOST: 0.0.0.0
+      PORT: 4000
+      AUTH_CODE: change-me
+      SERVER_ORIGIN_URL: http://localhost:4000
+      FEED_MODE: ""
+      CRON_EXPRESSION: 35 5,17 * * *
+      MAX_REQUEST_PER_MINUTE: 60
+      UPDATE_DELAY_TIME: 60
+      ENABLE_CLEAN_HTML: "false"
+      PLATFORM_URL: https://weread.111965.xyz
+    restart: unless-stopped
 
 volumes:
-  db_data:
+  postgres_data:

@@ -1,188 +1,238 @@
 <div align="center">
-<img src="https://raw.githubusercontent.com/cooderl/wewe-rss/main/assets/logo.png" width="80" alt="预览"/>
-
-# [WeWe RSS](https://github.com/cooderl/wewe-rss)
-
-更优雅的微信公众号订阅方式。
-
-![主界面](https://raw.githubusercontent.com/cooderl/wewe-rss/main/assets/preview1.png)
+  <img src="https://raw.githubusercontent.com/cooderl/wewe-rss/main/assets/logo.png" width="80" alt="WeWe RSS" />
+  <h1>WeWe RSS</h1>
+  <p>当前主链已收敛为单个 Next.js App Router 应用，数据库统一为 PostgreSQL + Prisma。</p>
 </div>
 
-## ✨ 功能
+## 当前状态
 
-- v2.x版本使用全新接口，更加稳定
+- 当前运行主链：
+  - `Next.js App Router`
+  - `React`
+  - `Tailwind CSS`
+  - `Prisma + PostgreSQL`
+- 当前公共输出兼容路径：
+  - `GET /feeds`
+  - `GET /feeds/all.atom`
+  - `GET /feeds/all.rss`
+  - `GET /feeds/all.json`
+  - `GET /feeds/:feed`
+- 当前后台入口：
+  - `/dash/login`
+  - `/dash/feeds`
+  - `/dash/feeds/[id]`
+  - `/dash/accounts`
+
+## legacy 是什么
+
+legacy = **历史遗留实现**。
+
+在这个项目里，legacy 指的是：
+
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\apps\web`
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\apps\server`
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\apps\server\data\wewe-rss.db`
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\apps\server\prisma-mysql-backup`
+
+这些内容现在**只保留做迁移对照或数据来源**，不再是正式运行主链。详细说明见：
+
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\apps\LEGACY.md`
+
+## 功能
+
 - 支持微信公众号订阅（基于微信读书）
-- 获取公众号历史发布文章
-- 后台自动定时更新内容
-- 微信公众号RSS生成（支持`.atom`、`.rss`、`.json`格式)
-- 支持全文内容输出，让阅读无障碍
-- 所有订阅源导出OPML
+- 支持二维码登录读书账号
+- 支持单个 feed 更新、全部 feed 更新、历史文章抓取
+- 支持 RSS / Atom / JSON 输出
+- 支持 OPML 导出
+- 支持标题过滤：
+  - `title_include`
+  - `title_exclude`
+- 支持 `update=true` 触发单个 feed 刷新
+- 支持 `mode=fulltext` 输出全文
 
-### 高级功能
+## 与旧版保持兼容的接口语义
 
-- **标题过滤**：支持通过`/feeds/all.(json|rss|atom)`接口和`/feeds/:feed`对标题进行过滤
-  ```
-  {{ORIGIN_URL}}/feeds/all.atom?title_include=张三
-  {{ORIGIN_URL}}/feeds/MP_WXS_123.json?limit=30&title_include=张三|李四|王五&title_exclude=张三丰|赵六
-  ```
+### 全部 feed
 
-- **手动更新**：支持通过`/feeds/:feed`接口触发单个feedid更新
-  ```
-  {{ORIGIN_URL}}/feeds/MP_WXS_123.rss?update=true
-  ```
-
-## 🚀 部署
-
-### 一键部署
-
-- [Deploy on Zeabur](https://zeabur.com/templates/DI9BBD)
-- [Railway](https://railway.app/)
-- [Hugging Face部署参考](https://github.com/cooderl/wewe-rss/issues/32)
-
-### Docker Compose 部署
-
-参考 [docker-compose.yml](https://github.com/cooderl/wewe-rss/blob/main/docker-compose.yml) 和 [docker-compose.sqlite.yml](https://github.com/cooderl/wewe-rss/blob/main/docker-compose.sqlite.yml)
-
-### Docker 命令启动
-
-#### MySQL (推荐)
-
-1. 创建docker网络
-   ```sh
-   docker network create wewe-rss
-   ```
-
-2. 启动 MySQL 数据库
-   ```sh
-   docker run -d \
-     --name db \
-     -e MYSQL_ROOT_PASSWORD=123456 \
-     -e TZ='Asia/Shanghai' \
-     -e MYSQL_DATABASE='wewe-rss' \
-     -v db_data:/var/lib/mysql \
-     --network wewe-rss \
-     mysql:8.3.0 --mysql-native-password=ON
-   ```
-
-3. 启动 Server
-   ```sh
-   docker run -d \
-     --name wewe-rss \
-     -p 4000:4000 \
-     -e DATABASE_URL='mysql://root:123456@db:3306/wewe-rss?schema=public&connect_timeout=30&pool_timeout=30&socket_timeout=30' \
-     -e AUTH_CODE=123567 \
-     --network wewe-rss \
-     cooderl/wewe-rss:latest
-   ```
-
-[Nginx配置参考](https://raw.githubusercontent.com/cooderl/wewe-rss/main/assets/nginx.example.conf)
-
-#### SQLite (不推荐)
-
-```sh
-docker run -d \
-  --name wewe-rss \
-  -p 4000:4000 \
-  -e DATABASE_TYPE=sqlite \
-  -e AUTH_CODE=123567 \
-  -v $(pwd)/data:/app/data \
-  cooderl/wewe-rss-sqlite:latest
+```text
+/feeds/all.atom
+/feeds/all.rss
+/feeds/all.json
 ```
 
-### 本地部署
+支持参数：
 
-使用 `pnpm install && pnpm run -r build && pnpm run start:server` 命令 (可配合 pm2 守护进程)
+- `limit`
+- `page`
+- `mode`
+- `title_include`
+- `title_exclude`
 
-**详细步骤** (SQLite示例)：
+### 单个 feed
 
-```shell
-# 需要提前声明环境变量,因为prisma会根据环境变量生成对应的数据库连接
-export DATABASE_URL="file:../data/wewe-rss.db"
-export DATABASE_TYPE="sqlite"
-# 删除mysql相关文件,避免prisma生成mysql连接
-rm -rf apps/server/prisma
-mv apps/server/prisma-sqlite apps/server/prisma
-# 生成prisma client
-npx prisma generate --schema apps/server/prisma/schema.prisma
-# 生成数据库表
-npx prisma migrate deploy --schema apps/server/prisma/schema.prisma
-# 构建并运行
-pnpm run -r build
-pnpm run start:server
+```text
+/feeds/:feed
 ```
 
-## ⚙️ 环境变量
+示例：
 
-| 变量名                   | 说明                                                                    | 默认值                      |
-| ------------------------ | ----------------------------------------------------------------------- | --------------------------- |
-| `DATABASE_URL`           | **必填** 数据库地址，例如 `mysql://root:123456@127.0.0.1:3306/wewe-rss` | -                           |
-| `DATABASE_TYPE`          | 数据库类型，使用 SQLite 时需填写 `sqlite`                               | -                           |
-| `AUTH_CODE`              | 服务端接口请求授权码，空字符或不设置将不启用 (`/feeds`路径不需要)       | -                           |
-| `SERVER_ORIGIN_URL`      | 服务端访问地址，用于生成RSS完整路径                                     | -                           |
-| `MAX_REQUEST_PER_MINUTE` | 每分钟最大请求次数                                                      | 60                          |
-| `FEED_MODE`              | 输出模式，可选值 `fulltext` (会使接口响应变慢，占用更多内存)            | -                           |
-| `CRON_EXPRESSION`        | 定时更新订阅源Cron表达式                                                | `35 5,17 * * *`             |
-| `UPDATE_DELAY_TIME`      | 连续更新延迟时间，减少被关小黑屋                                        | `60s`                       |
-| `ENABLE_CLEAN_HTML`      | 是否开启正文html清理                                                    | `false`                     |
-| `PLATFORM_URL`           | 基础服务URL                                                             | `https://weread.111965.xyz` |
+```text
+/feeds/MP_WXS_123.atom?limit=30&page=1
+/feeds/MP_WXS_123.json?title_include=张三|李四&title_exclude=广告
+/feeds/MP_WXS_123.rss?update=true
+```
 
-> **注意**: 国内DNS解析问题可使用 `https://weread.965111.xyz` 加速访问
+## 环境变量
 
-## 🔔 钉钉通知
+只保留 PostgreSQL 主链需要的变量：
 
-进入 wewe-rss-dingtalk 目录按照 README.md 指引部署
+- `DATABASE_URL`：PostgreSQL 连接串
+- `AUTH_CODE`：后台登录口令
+- `PORT`：应用端口
+- `HOST`：监听地址
+- `SERVER_ORIGIN_URL`：外部访问地址
+- `FEED_MODE`：全文模式，`fulltext` 可选
+- `CRON_EXPRESSION`：定时刷新表达式
+- `MAX_REQUEST_PER_MINUTE`：接口限流
+- `UPDATE_DELAY_TIME`：连续刷新间隔秒数
+- `ENABLE_CLEAN_HTML`：是否清理正文 HTML
+- `PLATFORM_URL`：读书平台代理地址
 
-## 📱 使用方式
+已移除：
 
-1. 进入账号管理，点击添加账号，微信扫码登录微信读书账号。
-  
-   **注意不要勾选24小时后自动退出**
-   
-   <img width="400" src="./assets/preview2.png"/>
+- `DATABASE_TYPE`
 
+当前没有对象存储需求，所以没有：
 
-2. 进入公众号源，点击添加，通过提交微信公众号分享链接，订阅微信公众号。
-   **添加频率过高容易被封控，等24小时解封**
+- `S3_ENDPOINT`
+- `S3_BUCKET`
+- `S3_ACCESS_KEY_ID`
+- `S3_SECRET_ACCESS_KEY`
 
-   <img width="400" src="./assets/preview3.png"/>
+示例文件：
 
-## 🔑 账号状态说明
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\.env.example`
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\.env.production.example`
 
-| 状态       | 说明                                                                |
-| ---------- | ------------------------------------------------------------------- |
-| 今日小黑屋 | 账号被封控，等一天恢复。账号正常时可通过重启服务/容器清除小黑屋记录 |
-| 禁用       | 不使用该账号                                                        |
-| 失效       | 账号登录状态失效，需要重新登录                                      |
+## 本地开发
 
-## 💻 本地开发
+### 1. 启动本地 PostgreSQL
 
-1. 安装 nodejs 20 和 pnpm
-2. 修改环境变量：
-   ```
-   cp ./apps/web/.env.local.example ./apps/web/.env
-   cp ./apps/server/.env.local.example ./apps/server/.env
-   ```
-3. 执行 `pnpm install && pnpm run build:web && pnpm dev` 
-   
-   ⚠️ **注意：此命令仅用于本地开发，不要用于部署！**
-4. 前端访问 `http://localhost:5173`，后端访问 `http://localhost:4000`
+```bash
+docker compose -f docker-compose.dev.yml up -d
+```
 
-## ⚠️ 风险声明
+默认暴露到本机：
 
-为了确保本项目的持久运行，某些接口请求将通过 `weread.111965.xyz` 进行转发。请放心，该转发服务不会保存任何数据。
+- `127.0.0.1:54330`
 
-## ❤️ 赞助
+### 2. 配置环境变量
 
-如果觉得 WeWe RSS 项目对你有帮助，可以给我来一杯啤酒！
+```bash
+cp .env.example .env
+```
 
-**PayPal**: [paypal.me/cooderl](https://paypal.me/cooderl)
+### 3. 安装依赖
 
-## 👨‍💻 贡献者
+```bash
+pnpm install
+```
 
-<a href="https://github.com/cooderl/wewe-rss/graphs/contributors">
-  <img src="https://contrib.rocks/image?repo=cooderl/wewe-rss" />
-</a>
+### 4. 初始化数据库
 
-## 📄 License
+```bash
+pnpm db:deploy
+```
 
-[MIT](https://raw.githubusercontent.com/cooderl/wewe-rss/main/LICENSE) @cooderl
+### 5. 如果需要，把旧 SQLite 数据导入 PostgreSQL
+
+默认迁移源：
+
+- `C:\Users\45142\Documents\projects\formal\wewe-rss\apps\server\data\wewe-rss.db`
+
+执行：
+
+```bash
+pnpm db:import:sqlite
+```
+
+可选自定义源路径：
+
+```bash
+SQLITE_IMPORT_PATH=/path/to/wewe-rss.db pnpm db:import:sqlite
+```
+
+### 6. 启动开发环境
+
+```bash
+pnpm dev
+```
+
+## 本地生产式启动
+
+```bash
+pnpm build
+pnpm start
+```
+
+## Docker
+
+### 主链：应用 + PostgreSQL
+
+```bash
+docker compose up -d --build
+```
+
+这会启动：
+
+- `app`：Next.js 主应用
+- `postgres`：PostgreSQL 数据库
+
+### 从旧 SQLite 导入到 PostgreSQL
+
+```bash
+docker compose -f docker-compose.sqlite.yml --profile import up --build
+```
+
+这个文件现在的用途是：
+
+- 启动 PostgreSQL
+- 运行一次 `pnpm db:import:sqlite`
+
+它**不再表示“SQLite 运行模式”**。
+
+## 仓库内哪些东西已经统一
+
+- 根目录只保留一个正式运行入口
+- Prisma 主 schema 只保留 PostgreSQL provider
+- `.env.example` / `.env.production.example` 已去掉 `DATABASE_TYPE`
+- `Dockerfile` / `docker-compose.yml` 已切到 PostgreSQL 主链
+- GitHub Docker release workflow 已改为单镜像发布
+
+## 仓库内哪些东西还故意没删
+
+- `apps/web`
+- `apps/server`
+- `apps/server/data/wewe-rss.db`
+- `apps/server/prisma-mysql-backup`
+
+原因不是“继续并行支持”，而是：
+
+- 旧业务逻辑还需要对照
+- SQLite 文件还需要作为迁移源
+- MySQL 备份还可以作为历史证据，但不是运行方案
+
+## 支持钉钉通知
+
+`C:\Users\45142\Documents\projects\formal\wewe-rss\wewe-rss-dingtalk`
+
+这是独立扩展目录，不属于当前主应用运行链。
+
+## 风险声明
+
+为了确保项目可以持续使用，部分接口请求会经过：
+
+- `https://weread.111965.xyz`
+
+请在自有环境内自行评估此依赖。

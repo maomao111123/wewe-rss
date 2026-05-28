@@ -1,61 +1,49 @@
-FROM node:20.16.0-alpine AS base
+FROM node:20.16.0-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
-RUN npm i -g pnpm
+RUN npm i -g pnpm@8.15.8
 
 FROM base AS build
-COPY . /usr/src/app
-WORKDIR /usr/src/app
-
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-
-RUN pnpm run -r build
-
-RUN pnpm deploy --filter=server --prod /app
-RUN pnpm deploy --filter=server --prod /app-sqlite
-
-RUN cd /app && pnpm exec prisma generate
-
-RUN cd /app-sqlite && \
-    rm -rf ./prisma && \
-    mv prisma-sqlite prisma && \
-    pnpm exec prisma generate
-
-FROM base AS app-sqlite
-COPY --from=build /app-sqlite /app
-
 WORKDIR /app
 
-EXPOSE 4000
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends python3 make g++ \
+  && rm -rf /var/lib/apt/lists/*
 
-ENV NODE_ENV=production
-ENV HOST="0.0.0.0"
-ENV SERVER_ORIGIN_URL=""
-ENV MAX_REQUEST_PER_MINUTE=60
-ENV AUTH_CODE=""
-ENV DATABASE_URL="file:../data/wewe-rss.db"
-ENV DATABASE_TYPE="sqlite"
+COPY package.json pnpm-lock.yaml .npmrc ./
+COPY prisma ./prisma
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
+RUN pnpm db:generate
 
-RUN chmod +x ./docker-bootstrap.sh
-
-CMD ["./docker-bootstrap.sh"]
-
+COPY . .
+RUN pnpm build
 
 FROM base AS app
-COPY --from=build /app /app
-
 WORKDIR /app
-
-EXPOSE 4000
 
 ENV NODE_ENV=production
 ENV HOST="0.0.0.0"
+ENV PORT="4000"
 ENV SERVER_ORIGIN_URL=""
-ENV MAX_REQUEST_PER_MINUTE=60
-ENV AUTH_CODE=""
-ENV DATABASE_URL=""
+ENV MAX_REQUEST_PER_MINUTE="60"
+ENV FEED_MODE=""
+ENV CRON_EXPRESSION="35 5,17 * * *"
+ENV UPDATE_DELAY_TIME="60"
+ENV ENABLE_CLEAN_HTML="false"
+ENV PLATFORM_URL="https://weread.111965.xyz"
 
-RUN chmod +x ./docker-bootstrap.sh
+COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/pnpm-lock.yaml ./pnpm-lock.yaml
+COPY --from=build /app/tsconfig.json ./tsconfig.json
+COPY --from=build /app/next.config.ts ./next.config.ts
+COPY --from=build /app/node_modules ./node_modules
+COPY --from=build /app/.next ./.next
+COPY --from=build /app/public ./public
+COPY --from=build /app/prisma ./prisma
+COPY --from=build /app/scripts ./scripts
+COPY --from=build /app/src ./src
 
-CMD ["./docker-bootstrap.sh"]
+EXPOSE 4000
+
+CMD ["node", "scripts/start.mjs"]

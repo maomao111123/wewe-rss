@@ -3,7 +3,9 @@ node_modules
 .gitignore
 *.md
 dist
-.env
+.env*
+!.env.example
+!.env.production.example
 .next
 .DS_Store
 ./wewe-rss-dingtalk

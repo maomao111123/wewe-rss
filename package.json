@@ -3,23 +3,54 @@
   "version": "2.6.1",
   "private": true,
   "author": "cooderl <cooder@111965.xyz>",
-  "description": "",
-  "main": "index.js",
+  "description": "WeWe RSS unified Next.js application",
   "engines": {
     "node": ">=20.9.0",
     "pnpm": ">=8.6.1",
     "vscode": ">=1.79"
   },
   "scripts": {
-    "dev": "pnpm run --parallel dev",
-    "build:server": "pnpm --filter server build",
-    "build:web": "pnpm --filter web build",
-    "start:server": "pnpm --filter server start:prod",
-    "start:web": "pnpm --filter web start",
+    "dev": "node scripts/dev.mjs",
+    "build": "next build",
+    "start": "node scripts/start.mjs",
+    "typecheck": "next typegen && tsc --noEmit",
+    "test": "tsx --test src/**/*.test.ts",
+    "db:generate": "prisma generate",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:studio": "prisma studio",
+    "db:import:sqlite": "tsx scripts/import-sqlite.ts",
+    "cron:local": "tsx scripts/run-feed-cron.ts",
     "fmt": "prettier --write .",
     "fmt.check": "prettier --check ."
   },
+  "dependencies": {
+    "@prisma/client": "5.22.0",
+    "better-sqlite3": "12.10.0",
+    "cheerio": "1.0.0-rc.12",
+    "dayjs": "^1.11.10",
+    "feed": "^4.2.2",
+    "html-minifier": "^4.0.0",
+    "next": "16.2.6",
+    "next-themes": "^0.2.1",
+    "qrcode.react": "^3.2.0",
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
+    "sonner": "^1.7.4",
+    "zod": "^3.25.76"
+  },
   "devDependencies": {
-    "prettier": "^3.2.5"
+    "@types/better-sqlite3": "^7.6.12",
+    "@types/html-minifier": "^4.0.5",
+    "@types/node": "^20.19.41",
+    "@types/react": "^18.3.29",
+    "@types/react-dom": "^18.3.7",
+    "autoprefixer": "^10.4.20",
+    "postcss": "^8.4.49",
+    "prettier": "^3.2.5",
+    "prisma": "5.22.0",
+    "tailwindcss": "^3.4.19",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.3"
   }
 }
