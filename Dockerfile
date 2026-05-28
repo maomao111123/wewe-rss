@@ -2,6 +2,10 @@ FROM node:20.16.0-bookworm-slim AS base
 ENV PNPM_HOME="/pnpm"
 ENV PATH="$PNPM_HOME:$PATH"
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends openssl \
+  && rm -rf /var/lib/apt/lists/*
+
 RUN npm i -g pnpm@8.15.8
 
 FROM base AS build
