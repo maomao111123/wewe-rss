@@ -10,7 +10,7 @@ import {
 } from '@nextui-org/react';
 import { ThemeSwitcher } from './ThemeSwitcher';
 import { GitHubIcon } from './GitHubIcon';
-import { useLocation } from 'react-router-dom';
+import { Link as RouterLink, useLocation } from 'react-router-dom';
 import { appVersion, serverOriginUrl } from '@web/utils/env';
 import { useEffect, useState } from 'react';
 
@@ -91,7 +91,7 @@ const Nav = () => {
                 isActive={pathname.startsWith(item.href)}
                 key={item.href}
               >
-                <Link color="foreground" href={item.href}>
+                <Link as={RouterLink} color="foreground" to={item.href}>
                   {item.name}
                 </Link>
               </NavbarItem>

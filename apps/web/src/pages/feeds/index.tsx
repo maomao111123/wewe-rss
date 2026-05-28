@@ -25,6 +25,59 @@ import dayjs from 'dayjs';
 import { serverOriginUrl } from '@web/utils/env';
 import ArticleList from './list';
 
+const ALL_FEEDS_KEY = '__all_feeds__';
+
+const CATEGORY_ORDER = [
+  '赚钱 / 副业 / 创业',
+  '女性成长 / 自媒体',
+  '情绪 / 鸡汤 / 治愈',
+  '生活小妙招 / 家居',
+  '漫画 / 贴图',
+  '其他 / 待判断',
+] as const;
+
+const normalizeCategoryLabel = (raw: string) => {
+  const text = raw.trim().replace(/[｜|]/g, '/').replace(/[＋+]/g, '/');
+
+  if (
+    /(赚钱|搞钱|谈钱|副业|创业|变现|私域|流量主|生财|AI|ai|存钱)/.test(text)
+  ) {
+    return '赚钱 / 副业 / 创业';
+  }
+
+  if (/(女性成长|女性|成长|自媒体|姑娘|姐姐|逆袭|读博)/.test(text)) {
+    return '女性成长 / 自媒体';
+  }
+
+  if (/(鸡汤|人性|治愈|情绪|情感|暖阳|文摘)/.test(text)) {
+    return '情绪 / 鸡汤 / 治愈';
+  }
+
+  if (/(生活小妙招|生活|家居|收纳|食光|家政|帮手)/.test(text)) {
+    return '生活小妙招 / 家居';
+  }
+
+  if (/(漫画|贴图|表情包|海报|长图|卡片)/.test(text)) {
+    return '漫画 / 贴图';
+  }
+
+  return text || '其他 / 待判断';
+};
+
+const getFeedCategory = (feed: {
+  mpName: string;
+  mpIntro: string;
+}): string => {
+  const intro = feed.mpIntro || '';
+  const matchedCategory = intro.match(/分类[:：]\s*([^｜|\n]+)/)?.[1];
+
+  if (matchedCategory) {
+    return normalizeCategoryLabel(matchedCategory);
+  }
+
+  return normalizeCategoryLabel(`${feed.mpName} ${intro}`);
+};
+
 const Feeds = () => {
   const { id } = useParams();
 
@@ -69,7 +122,7 @@ const Feeds = () => {
 
   const [wxsLink, setWxsLink] = useState('');
 
-  const [currentMpId, setCurrentMpId] = useState(id || '');
+  const currentMpId = id || '';
 
   const handleConfirm = async () => {
     console.log('wxsLink', wxsLink);
@@ -109,6 +162,30 @@ const Feeds = () => {
   const currentMpInfo = useMemo(() => {
     return feedData?.items.find((item) => item.id === currentMpId);
   }, [currentMpId, feedData?.items]);
+
+  const groupedFeeds = useMemo(() => {
+    const groups = new Map<string, any[]>();
+
+    for (const item of feedData?.items || []) {
+      const category = getFeedCategory(item);
+      const existing = groups.get(category) || [];
+      existing.push(item);
+      groups.set(category, existing);
+    }
+
+    return Array.from(groups.entries())
+      .map(([category, items]) => ({
+        category,
+        items: [...items].sort((a, b) => a.mpName.localeCompare(b.mpName)),
+      }))
+      .sort((a, b) => {
+        const aIdx = CATEGORY_ORDER.indexOf(a.category as any);
+        const bIdx = CATEGORY_ORDER.indexOf(b.category as any);
+        const safeA = aIdx === -1 ? Number.MAX_SAFE_INTEGER : aIdx;
+        const safeB = bIdx === -1 ? Number.MAX_SAFE_INTEGER : bIdx;
+        return safeA - safeB || a.category.localeCompare(b.category);
+      });
+  }, [feedData?.items]);
 
   const handleExportOpml = async (ev) => {
     ev.preventDefault();
@@ -161,48 +238,71 @@ const Feeds = () => {
           </div>
 
           {feedData?.items ? (
-            <Listbox
-              aria-label="订阅源"
-              emptyContent="暂无订阅"
-              onAction={(key) => setCurrentMpId(key as string)}
-            >
-              <ListboxSection showDivider>
-                <ListboxItem
-                  key={''}
-                  href={`/feeds`}
-                  className={isActive('') ? 'bg-primary-50 text-primary' : ''}
-                  startContent={<Avatar name="ALL"></Avatar>}
-                >
-                  全部
-                </ListboxItem>
-              </ListboxSection>
-
-              <ListboxSection className="overflow-y-auto h-[calc(100vh-260px)]">
-                {feedData?.items.map((item) => {
-                  return (
-                    <ListboxItem
-                      href={`/feeds/${item.id}`}
-                      className={
-                        isActive(item.id) ? 'bg-primary-50 text-primary' : ''
-                      }
-                      key={item.id}
-                      startContent={<Avatar src={item.mpCover}></Avatar>}
-                    >
-                      {item.mpName}
-                    </ListboxItem>
+            <div className="overflow-y-auto h-[calc(100vh-260px)] pr-1">
+              <Listbox
+                aria-label="订阅源"
+                emptyContent="暂无订阅"
+                onAction={(key) => {
+                  const target = String(key);
+                  navigate(
+                    target === ALL_FEEDS_KEY ? '/feeds' : `/feeds/${target}`,
                   );
-                }) || []}
-              </ListboxSection>
-            </Listbox>
+                }}
+              >
+                <>
+                  <ListboxSection showDivider>
+                    <ListboxItem
+                      key={ALL_FEEDS_KEY}
+                      className={
+                        isActive('') ? 'bg-primary-50 text-primary' : ''
+                      }
+                      startContent={<Avatar name="ALL"></Avatar>}
+                    >
+                      全部
+                    </ListboxItem>
+                  </ListboxSection>
+
+                  {groupedFeeds.map((group) => (
+                    <ListboxSection
+                      key={group.category}
+                      showDivider
+                      title={`${group.category} (${group.items.length})`}
+                    >
+                      {group.items.map((item) => (
+                        <ListboxItem
+                          className={
+                            isActive(item.id)
+                              ? 'bg-primary-50 text-primary'
+                              : ''
+                          }
+                          key={item.id}
+                          startContent={<Avatar src={item.mpCover}></Avatar>}
+                          description={item.mpIntro?.slice(0, 24) || undefined}
+                        >
+                          {item.mpName}
+                        </ListboxItem>
+                      ))}
+                    </ListboxSection>
+                  ))}
+                </>
+              </Listbox>
+            </div>
           ) : (
             ''
           )}
         </div>
         <div className="flex-1 h-full flex flex-col">
           <div className="p-4 pb-0 flex justify-between">
-            <h3 className="text-medium font-mono flex-1 overflow-hidden text-ellipsis break-keep text-nowrap pr-1">
-              {currentMpInfo?.mpName || '全部'}
-            </h3>
+            <div className="min-w-0 flex-1">
+              <h3 className="text-medium font-mono overflow-hidden text-ellipsis break-keep text-nowrap pr-1">
+                {currentMpInfo?.mpName || '全部'}
+              </h3>
+              {currentMpInfo && (
+                <div className="mt-1 text-xs text-default-500">
+                  {getFeedCategory(currentMpInfo)}
+                </div>
+              )}
+            </div>
             {currentMpInfo ? (
               <div className="flex h-5 items-center space-x-4 text-small">
                 <div className="font-light">

@@ -1,0 +1,21 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+    image: wewe-rss:latest
+    container_name: wewe-rss-app
+    env_file:
+      - .env.production
+    ports:
+      - "127.0.0.1:4011:4000"
+    restart: unless-stopped
+    networks:
+      - default
+      - shared-infra
+
+networks:
+  shared-infra:
+    external: true
+    name: shared-infra
