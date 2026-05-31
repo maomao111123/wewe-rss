@@ -1,15 +1,19 @@
-"use client";
+'use client';
 
-import dayjs from "dayjs";
-import { useEffect, useState, useTransition } from "react";
+import dayjs from 'dayjs';
+import { useEffect, useState, useTransition } from 'react';
 
-import { Button } from "@/components/ui/button";
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { articleContentTypeLabels } from '@/lib/services/article-analysis';
 
 type ArticleItem = {
   id: string;
   mpId: string;
   title: string;
   publishTime: number;
+  contentType: keyof typeof articleContentTypeLabels;
+  textLength: number;
 };
 
 export function ArticleTable({
@@ -22,7 +26,9 @@ export function ArticleTable({
   selectedFeedId?: string;
 }) {
   const [items, setItems] = useState(initialItems);
-  const [nextCursor, setNextCursor] = useState<string | undefined>(initialNextCursor);
+  const [nextCursor, setNextCursor] = useState<string | undefined>(
+    initialNextCursor,
+  );
   const [isPending, startTransition] = useTransition();
 
   useEffect(() => {
@@ -33,19 +39,22 @@ export function ArticleTable({
   const handleLoadMore = () => {
     startTransition(async () => {
       const searchParams = new URLSearchParams({
-        limit: "20",
+        limit: '20',
       });
 
       if (selectedFeedId) {
-        searchParams.set("mpId", selectedFeedId);
+        searchParams.set('mpId', selectedFeedId);
       }
       if (nextCursor) {
-        searchParams.set("cursor", nextCursor);
+        searchParams.set('cursor', nextCursor);
       }
 
-      const response = await fetch(`/api/dashboard/articles?${searchParams.toString()}`, {
-        cache: "no-store",
-      });
+      const response = await fetch(
+        `/api/dashboard/articles?${searchParams.toString()}`,
+        {
+          cache: 'no-store',
+        },
+      );
       const payload = await response.json();
 
       if (response.ok) {
@@ -62,6 +71,12 @@ export function ArticleTable({
           <tr>
             <th className="px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200">
               标题
+            </th>
+            <th className="w-28 px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200">
+              类型
+            </th>
+            <th className="w-28 px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200">
+              字数
             </th>
             <th className="w-48 px-4 py-3 text-left text-sm font-semibold text-slate-700 dark:text-slate-200">
               发布时间
@@ -82,14 +97,36 @@ export function ArticleTable({
                     {item.title}
                   </a>
                 </td>
+                <td className="px-4 py-3 text-sm">
+                  <Badge
+                    tone={
+                      item.contentType === 'sticker'
+                        ? 'warning'
+                        : item.contentType === 'article'
+                          ? 'success'
+                          : 'neutral'
+                    }
+                  >
+                    {articleContentTypeLabels[item.contentType] ||
+                      articleContentTypeLabels.unknown}
+                  </Badge>
+                </td>
                 <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
-                  {dayjs(item.publishTime * 1_000).format("YYYY-MM-DD HH:mm:ss")}
+                  {item.textLength || '-'}
+                </td>
+                <td className="px-4 py-3 text-sm text-slate-500 dark:text-slate-400">
+                  {dayjs(item.publishTime * 1_000).format(
+                    'YYYY-MM-DD HH:mm:ss',
+                  )}
                 </td>
               </tr>
             ))
           ) : (
             <tr>
-              <td colSpan={2} className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400">
+              <td
+                colSpan={4}
+                className="px-4 py-10 text-center text-sm text-slate-500 dark:text-slate-400"
+              >
                 暂无数据
               </td>
             </tr>
@@ -98,8 +135,12 @@ export function ArticleTable({
       </table>
       {nextCursor ? (
         <div className="flex justify-center border-t border-slate-200 p-4 dark:border-slate-800">
-          <Button variant="outline" onClick={handleLoadMore} disabled={isPending}>
-            {isPending ? "加载中..." : "加载更多"}
+          <Button
+            variant="outline"
+            onClick={handleLoadMore}
+            disabled={isPending}
+          >
+            {isPending ? '加载中...' : '加载更多'}
           </Button>
         </div>
       ) : null}

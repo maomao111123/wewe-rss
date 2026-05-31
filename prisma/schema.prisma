@@ -42,6 +42,9 @@ model Article {
   title       String   @map("title")
   picUrl      String   @map("pic_url")
   publishTime Int      @map("publish_time")
+  contentType String   @default("unknown") @map("content_type")
+  textLength  Int      @default(0) @map("text_length")
+  sourceUrl   String?  @map("source_url")
   createdAt   DateTime @default(now()) @map("created_at")
   updatedAt   DateTime @default(now()) @updatedAt @map("updated_at")
 

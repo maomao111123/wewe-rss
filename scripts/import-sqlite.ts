@@ -1,8 +1,8 @@
-import Database from "better-sqlite3";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import Database from 'better-sqlite3';
+import { existsSync } from 'node:fs';
+import { resolve } from 'node:path';
 
-import { prisma } from "../src/lib/prisma";
+import { prisma } from '../src/lib/prisma';
 
 type SqliteAccount = {
   id: string;
@@ -36,19 +36,22 @@ type SqliteArticle = {
   updated_at: unknown;
 };
 
-const defaultSqlitePath = resolve(process.cwd(), "apps/server/data/wewe-rss.db");
+const defaultSqlitePath = resolve(
+  process.cwd(),
+  'apps/server/data/wewe-rss.db',
+);
 
 function toDate(value: unknown) {
   if (value instanceof Date) {
     return value;
   }
 
-  if (typeof value === "number") {
+  if (typeof value === 'number') {
     const time = value > 1e11 ? value : value * 1_000;
     return new Date(time);
   }
 
-  if (typeof value === "string") {
+  if (typeof value === 'string') {
     const trimmed = value.trim();
     if (!trimmed) {
       return new Date();
@@ -71,7 +74,7 @@ function toDate(value: unknown) {
 
 async function syncAccounts(db: Database.Database) {
   const rows = db
-    .prepare("SELECT * FROM accounts ORDER BY id ASC")
+    .prepare('SELECT * FROM accounts ORDER BY id ASC')
     .all() as SqliteAccount[];
   let created = 0;
   let updated = 0;
@@ -119,7 +122,7 @@ async function syncAccounts(db: Database.Database) {
 
 async function syncFeeds(db: Database.Database) {
   const rows = db
-    .prepare("SELECT * FROM feeds ORDER BY id ASC")
+    .prepare('SELECT * FROM feeds ORDER BY id ASC')
     .all() as SqliteFeed[];
   let created = 0;
   let updated = 0;
@@ -175,7 +178,7 @@ async function syncFeeds(db: Database.Database) {
 
 async function syncArticles(db: Database.Database) {
   const rows = db
-    .prepare("SELECT * FROM articles ORDER BY publish_time DESC, id DESC")
+    .prepare('SELECT * FROM articles ORDER BY publish_time DESC, id DESC')
     .all() as SqliteArticle[];
   let created = 0;
   let updated = 0;
@@ -188,6 +191,7 @@ async function syncArticles(db: Database.Database) {
       title: row.title,
       picUrl: row.pic_url,
       publishTime: row.publish_time,
+      sourceUrl: `https://mp.weixin.qq.com/s/${row.id}`,
     };
 
     if (!existing) {
@@ -274,7 +278,7 @@ async function main() {
 }
 
 main().catch(async (error) => {
-  console.error("SQLite -> PostgreSQL 导入失败", error);
+  console.error('SQLite -> PostgreSQL 导入失败', error);
   await prisma.$disconnect();
   process.exit(1);
 });

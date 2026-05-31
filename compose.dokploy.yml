@@ -1,0 +1,35 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      target: app
+    image: wewe-rss:latest
+    restart: unless-stopped
+    command: ["sh", "-c", "pnpm db:deploy && pnpm start"]
+    expose:
+      - "4000"
+    environment:
+      NODE_ENV: production
+      NEXT_TELEMETRY_DISABLED: "1"
+      HOST: "0.0.0.0"
+      PORT: "4000"
+      DATABASE_URL: ${DATABASE_URL}
+      AUTH_CODE: ${AUTH_CODE}
+      SERVER_ORIGIN_URL: ${SERVER_ORIGIN_URL}
+      PLATFORM_URL: ${PLATFORM_URL}
+      FEED_MODE: ${FEED_MODE:-}
+      CRON_EXPRESSION: ${CRON_EXPRESSION:-35 5,17 * * *}
+      MAX_REQUEST_PER_MINUTE: ${MAX_REQUEST_PER_MINUTE:-60}
+      UPDATE_DELAY_TIME: ${UPDATE_DELAY_TIME:-60}
+      ENABLE_CLEAN_HTML: ${ENABLE_CLEAN_HTML:-false}
+    networks:
+      - dokploy-network
+      - shared-infra
+
+networks:
+  dokploy-network:
+    external: true
+  shared-infra:
+    external: true
+    name: shared-infra

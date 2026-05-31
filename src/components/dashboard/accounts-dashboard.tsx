@@ -39,6 +39,7 @@ export function AccountsDashboard({
   const [countdown, setCountdown] = useState(0);
   const [loginPayload, setLoginPayload] = useState<LoginPayload | null>(null);
   const [loginResult, setLoginResult] = useState<LoginResult | null>(null);
+  const [loginModalTitle, setLoginModalTitle] = useState("添加读书账号");
 
   useEffect(() => {
     if (!modalOpen || countdown <= 0) {
@@ -79,7 +80,8 @@ export function AccountsDashboard({
     return () => window.clearInterval(timer);
   }, [loginPayload?.uuid, loginResult?.message, modalOpen, router]);
 
-  const openLoginModal = () => {
+  const openLoginModal = (title = "添加读书账号") => {
+    setLoginModalTitle(title);
     setModalOpen(true);
     setLoginPayload(null);
     setLoginResult(null);
@@ -104,7 +106,7 @@ export function AccountsDashboard({
       <Card className="overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-200 px-4 py-4 dark:border-slate-800">
           <div className="text-sm text-slate-500">共 {accounts.length} 个账号</div>
-          <Button size="sm" onClick={openLoginModal} disabled={isPending}>
+          <Button size="sm" onClick={() => openLoginModal()} disabled={isPending}>
             添加读书账号
           </Button>
         </div>
@@ -149,22 +151,35 @@ export function AccountsDashboard({
                       </td>
                       <td className="px-4 py-3 text-sm">
                         <div className="flex items-center gap-2">
-                          <select
-                            value={account.status}
-                            onChange={(event) => {
-                              const status = Number(event.target.value);
-                              startTransition(async () => {
-                                await setAccountStatusAction(account.id, status);
-                                toast.success("状态已更新");
-                                router.refresh();
-                              });
-                            }}
-                            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
-                          >
-                            <option value={STATUS.ENABLE}>启用</option>
-                            <option value={STATUS.DISABLE}>禁用</option>
-                            <option value={STATUS.INVALID}>失效</option>
-                          </select>
+                          {account.status === STATUS.INVALID ? (
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              onClick={() =>
+                                openLoginModal(`重新授权：${account.name}`)
+                              }
+                              disabled={isPending}
+                            >
+                              重新授权
+                            </Button>
+                          ) : (
+                            <select
+                              value={account.status}
+                              onChange={(event) => {
+                                const status = Number(event.target.value);
+                                startTransition(async () => {
+                                  await setAccountStatusAction(account.id, status);
+                                  toast.success("状态已更新");
+                                  router.refresh();
+                                });
+                              }}
+                              className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+                            >
+                              <option value={STATUS.ENABLE}>启用</option>
+                              <option value={STATUS.DISABLE}>禁用</option>
+                              <option value={STATUS.INVALID}>标记失效</option>
+                            </select>
+                          )}
                           <Button
                             variant="destructive"
                             size="sm"
@@ -201,7 +216,7 @@ export function AccountsDashboard({
       <Modal
         open={modalOpen}
         onClose={() => setModalOpen(false)}
-        title="添加读书账号"
+        title={loginModalTitle}
       >
         <div className="flex min-h-[260px] flex-col items-center justify-center gap-4 text-center">
           {loginPayload ? (

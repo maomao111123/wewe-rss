@@ -1,17 +1,17 @@
-import dayjs from "dayjs";
-import timezone from "dayjs/plugin/timezone";
-import utc from "dayjs/plugin/utc";
+import dayjs from 'dayjs';
+import timezone from 'dayjs/plugin/timezone';
+import utc from 'dayjs/plugin/utc';
 
-import { prisma } from "@/lib/prisma";
-import { getEnv } from "@/lib/config";
-import { STATUS, defaultCount } from "@/lib/constants";
+import { prisma } from '@/lib/prisma';
+import { getEnv } from '@/lib/config';
+import { STATUS } from '@/lib/constants';
+import { dashboardState } from '@/lib/dashboard-state';
 import {
-  clearHistoryProgress,
-  dashboardState,
-  getHistoryProgress,
-  setHistoryProgress,
-} from "@/lib/dashboard-state";
-import { sleep } from "@/lib/time";
+  isDashboardTaskCancelled,
+  setDashboardTaskProgress,
+} from '@/lib/dashboard-tasks';
+import { analyzeArticlePage } from '@/lib/services/article-analysis';
+import { sleep } from '@/lib/time';
 
 dayjs.extend(utc);
 dayjs.extend(timezone);
@@ -43,22 +43,30 @@ type LoginResultPayload = {
   username?: string;
 };
 
+const EMPTY_FIRST_PAGE_RETRY_DELAY_MS = 1_000;
+const FULL_FETCH_EMPTY_PAGE_STREAK_LIMIT = 100;
+const PLATFORM_THROTTLE_RETRY_DELAY_MS = 60_000;
+
 class PlatformError extends Error {
   constructor(
     message: string,
     readonly accountId?: string,
   ) {
     super(message);
-    this.name = "PlatformError";
+    this.name = 'PlatformError';
   }
 }
 
 function getTodayDate() {
-  return dayjs.tz(new Date(), "Asia/Shanghai").format("YYYY-MM-DD");
+  return dayjs.tz(new Date(), 'Asia/Shanghai').format('YYYY-MM-DD');
 }
 
 export function getBlockedAccountIds() {
   return dashboardState.blockedAccountsMap.get(getTodayDate()) || [];
+}
+
+export function getArticleSourceUrl(id: string) {
+  return `https://mp.weixin.qq.com/s/${id}`;
 }
 
 function addBlockedAccount(accountId: string) {
@@ -91,7 +99,7 @@ async function getAvailableAccount() {
   });
 
   if (!accounts.length) {
-    throw new Error("暂无可用读书账号!");
+    throw new Error('暂无可用读书账号!');
   }
 
   return accounts[Math.floor(Math.random() * accounts.length)];
@@ -100,7 +108,7 @@ async function getAvailableAccount() {
 async function fetchPlatformJson<T>(
   path: string,
   options?: {
-    method?: "GET" | "POST";
+    method?: 'GET' | 'POST';
     body?: unknown;
     searchParams?: Record<string, string | number | undefined>;
     headers?: HeadersInit;
@@ -119,14 +127,14 @@ async function fetchPlatformJson<T>(
   }
 
   const response = await fetch(url, {
-    method: options?.method || "GET",
+    method: options?.method || 'GET',
     headers: {
-      "Content-Type": "application/json",
+      'Content-Type': 'application/json',
       ...(options?.headers || {}),
     },
     body: options?.body ? JSON.stringify(options.body) : undefined,
     signal: AbortSignal.timeout(options?.timeoutMs ?? 15_000),
-    cache: "no-store",
+    cache: 'no-store',
   });
 
   const text = await response.text();
@@ -134,34 +142,76 @@ async function fetchPlatformJson<T>(
 
   if (!response.ok) {
     const errorMessage =
-      payload?.message || payload?.error || text || `Platform request failed: ${response.status}`;
+      payload?.message ||
+      payload?.error ||
+      text ||
+      `Platform request failed: ${response.status}`;
     throw new Error(errorMessage);
   }
 
   return payload as T;
 }
 
-async function handlePlatformAccountError(error: PlatformError) {
-  if (!error.accountId) {
-    return;
+function isAuthExpiredPlatformError(message: string) {
+  return message.includes('WeReadError401');
+}
+
+function isTemporaryBlockedPlatformError(message: string) {
+  return message.includes('WeReadError400');
+}
+
+function isThrottledPlatformError(message: string) {
+  return (
+    message.includes('ThrottlerException') ||
+    message.includes('Too Many Requests')
+  );
+}
+
+function getReadablePlatformErrorMessage(message: string) {
+  if (isAuthExpiredPlatformError(message)) {
+    return '微信读书账号授权已失效，请重新授权';
   }
 
-  if (error.message.includes("WeReadError401")) {
+  if (isTemporaryBlockedPlatformError(message)) {
+    return '微信读书接口临时拒绝该账号，通常是请求过快触发风控，请稍后再试或换账号';
+  }
+
+  if (isThrottledPlatformError(message)) {
+    return '上游接口限流，请稍后重试';
+  }
+
+  return message;
+}
+
+async function handlePlatformAccountError(error: PlatformError) {
+  if (isThrottledPlatformError(error.message)) {
+    await sleep(PLATFORM_THROTTLE_RETRY_DELAY_MS);
+    return 'retryable' as const;
+  }
+
+  if (!error.accountId) {
+    return 'failed' as const;
+  }
+
+  if (isAuthExpiredPlatformError(error.message)) {
     await prisma.account.update({
       where: { id: error.accountId },
       data: { status: STATUS.INVALID },
     });
-    return;
+    return 'auth-expired' as const;
   }
 
-  if (error.message.includes("WeReadError429")) {
+  if (isTemporaryBlockedPlatformError(error.message)) {
     addBlockedAccount(error.accountId);
-    return;
+    return 'account-blocked' as const;
   }
 
-  if (error.message.includes("WeReadError400")) {
-    await sleep(10_000);
+  if (error.message.includes('WeReadError429')) {
+    addBlockedAccount(error.accountId);
+    return 'retryable' as const;
   }
+
+  return 'failed' as const;
 }
 
 export async function getMpArticles(
@@ -170,9 +220,8 @@ export async function getMpArticles(
   retryCount = 3,
 ): Promise<PlatformArticle[]> {
   const account = await getAvailableAccount();
-
-  try {
-    const articles = await fetchPlatformJson<PlatformArticle[]>(
+  const requestArticles = (targetPage: number) =>
+    fetchPlatformJson<PlatformArticle[]>(
       `/api/v2/platform/mps/${mpId}/articles`,
       {
         headers: {
@@ -180,25 +229,56 @@ export async function getMpArticles(
           Authorization: `Bearer ${account.token}`,
         },
         searchParams: {
-          page,
+          page: targetPage,
         },
       },
     );
 
+  try {
+    const articles = await requestArticles(page);
+
+    if (page === 1 && articles.length === 0) {
+      if (retryCount > 0) {
+        await sleep(EMPTY_FIRST_PAGE_RETRY_DELAY_MS);
+        return getMpArticles(mpId, page, retryCount - 1);
+      }
+
+      for (const fallbackPage of [2, 3]) {
+        const fallbackArticles = await requestArticles(fallbackPage).catch(
+          () => [],
+        );
+        if (fallbackArticles.length > 0) {
+          return fallbackArticles;
+        }
+      }
+
+      throw new Error('上游返回空文章列表，暂不判定为无文章');
+    }
+
     return articles;
   } catch (error) {
     const platformError = new PlatformError(
-      error instanceof Error ? error.message : "读取公众号文章失败",
+      error instanceof Error ? error.message : '读取公众号文章失败',
       account.id,
     );
 
-    await handlePlatformAccountError(platformError);
+    const errorResult = await handlePlatformAccountError(platformError);
+
+    if (errorResult === 'auth-expired' || errorResult === 'account-blocked') {
+      throw new PlatformError(
+        getReadablePlatformErrorMessage(platformError.message),
+        account.id,
+      );
+    }
 
     if (retryCount > 0) {
       return getMpArticles(mpId, page, retryCount - 1);
     }
 
-    throw platformError;
+    throw new PlatformError(
+      getReadablePlatformErrorMessage(platformError.message),
+      account.id,
+    );
   }
 }
 
@@ -207,7 +287,7 @@ export async function getMpInfo(url: string) {
 
   try {
     return await fetchPlatformJson<PlatformMpInfo>(`/api/v2/platform/wxs2mp`, {
-      method: "POST",
+      method: 'POST',
       body: { url: url.trim() },
       headers: {
         xid: account.id,
@@ -216,17 +296,20 @@ export async function getMpInfo(url: string) {
     });
   } catch (error) {
     const platformError = new PlatformError(
-      error instanceof Error ? error.message : "解析公众号失败",
+      error instanceof Error ? error.message : '解析公众号失败',
       account.id,
     );
 
     await handlePlatformAccountError(platformError);
-    throw platformError;
+    throw new PlatformError(
+      getReadablePlatformErrorMessage(platformError.message),
+      account.id,
+    );
   }
 }
 
 export function createLoginUrl() {
-  return fetchPlatformJson<LoginUrlPayload>("/api/v2/login/platform");
+  return fetchPlatformJson<LoginUrlPayload>('/api/v2/login/platform');
 }
 
 export function getLoginResult(id: string) {
@@ -243,14 +326,26 @@ export async function refreshMpArticlesAndUpdateFeed(mpId: string, page = 1) {
       articles.map(({ id, picUrl, publishTime, title }) =>
         prisma.article.upsert({
           where: { id },
-          create: { id, mpId, picUrl, publishTime, title },
-          update: { picUrl, publishTime, title },
+          create: {
+            id,
+            mpId,
+            picUrl,
+            publishTime,
+            title,
+            sourceUrl: getArticleSourceUrl(id),
+          },
+          update: {
+            picUrl,
+            publishTime,
+            title,
+            sourceUrl: getArticleSourceUrl(id),
+          },
         }),
       ),
     );
   }
 
-  const hasHistory = articles.length < defaultCount ? 0 : 1;
+  const hasHistory = articles.length > 0 ? 1 : 0;
 
   await prisma.feed.update({
     where: { id: mpId },
@@ -260,79 +355,227 @@ export async function refreshMpArticlesAndUpdateFeed(mpId: string, page = 1) {
     },
   });
 
-  return { hasHistory };
+  return {
+    hasHistory,
+    articleIds: articles.map((article) => article.id),
+  };
 }
 
-export async function refreshAllMpArticlesAndUpdateFeed() {
-  if (dashboardState.isRefreshAllMpArticlesRunning) {
-    return;
-  }
-
-  dashboardState.isRefreshAllMpArticlesRunning = true;
+export async function refreshAllMpArticlesAndUpdateFeed(options?: {
+  taskId?: string;
+}) {
   const feeds = await prisma.feed.findMany({
     where: {
       status: STATUS.ENABLE,
     },
   });
 
-  try {
-    for (const feed of feeds) {
-      await refreshMpArticlesAndUpdateFeed(feed.id);
-      await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
+  for (const [index, feed] of feeds.entries()) {
+    if (options?.taskId && isDashboardTaskCancelled(options.taskId)) {
+      return;
     }
-  } finally {
-    dashboardState.isRefreshAllMpArticlesRunning = false;
+
+    if (options?.taskId) {
+      setDashboardTaskProgress(options.taskId, {
+        current: index + 1,
+        total: feeds.length,
+        label: `更新 ${feed.mpName}`,
+      });
+    }
+
+    await fetchAllMpArticlesAndUpdateFeed(feed.id, options);
+    await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
   }
 }
 
-export async function getHistoryMpArticles(mpId: string) {
-  if (getHistoryProgress().id === mpId) {
-    clearHistoryProgress();
-    return;
-  }
-
-  setHistoryProgress(mpId, 1);
-
+export async function getHistoryMpArticles(
+  mpId: string,
+  options?: {
+    taskId?: string;
+    startPage?: number;
+  },
+) {
   if (!mpId) {
     return;
   }
 
-  try {
-    const feed = await prisma.feed.findFirstOrThrow({
-      where: { id: mpId },
-    });
+  let currentPage = Math.max(2, options?.startPage ?? 2);
+  let remaining = 1_000;
+  const seenPageSignatures = new Set<string>();
+  let duplicatePageCount = 0;
+  let emptyPageCount = 0;
+  let fetchedCount = 0;
 
-    if (feed.hasHistory === 0) {
+  while (remaining-- > 0) {
+    if (options?.taskId && isDashboardTaskCancelled(options.taskId)) {
       return;
     }
 
-    const total = await prisma.article.count({
-      where: { mpId },
-    });
-
-    setHistoryProgress(mpId, Math.ceil(total / defaultCount));
-
-    let remaining = 1_000;
-    while (remaining-- > 0) {
-      if (getHistoryProgress().id !== mpId) {
-        break;
-      }
-
-      const progress = getHistoryProgress();
-      const { hasHistory } = await refreshMpArticlesAndUpdateFeed(mpId, progress.page);
-
-      if (hasHistory < 1) {
-        break;
-      }
-
-      setHistoryProgress(mpId, progress.page + 1);
-      await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
+    if (options?.taskId) {
+      setDashboardTaskProgress(options.taskId, {
+        current: currentPage,
+        label: `抓取第 ${currentPage} 页`,
+        fetchedCount,
+      });
     }
-  } finally {
-    clearHistoryProgress();
+
+    const { articleIds } = await refreshMpArticlesAndUpdateFeed(
+      mpId,
+      currentPage,
+    );
+    fetchedCount += articleIds.length;
+
+    if (options?.taskId) {
+      setDashboardTaskProgress(options.taskId, {
+        current: currentPage,
+        label: `抓取第 ${currentPage} 页`,
+        fetchedCount,
+      });
+    }
+
+    if (articleIds.length === 0) {
+      emptyPageCount += 1;
+      if (emptyPageCount >= FULL_FETCH_EMPTY_PAGE_STREAK_LIMIT) {
+        return;
+      }
+      currentPage += 1;
+      await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
+      continue;
+    }
+
+    emptyPageCount = 0;
+    const pageSignature = articleIds.join('|');
+    if (seenPageSignatures.has(pageSignature)) {
+      duplicatePageCount += 1;
+      if (duplicatePageCount >= 3) {
+        return;
+      }
+    } else {
+      seenPageSignatures.add(pageSignature);
+      duplicatePageCount = 0;
+    }
+
+    currentPage += 1;
+    await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
   }
 }
 
-export async function stopHistorySync() {
-  clearHistoryProgress();
+export async function fetchAllMpArticlesAndUpdateFeed(
+  mpId: string,
+  options?: {
+    taskId?: string;
+    startPage?: number;
+  },
+) {
+  let currentPage = Math.max(1, options?.startPage ?? 1);
+  let remaining = 1_000;
+  const seenPageSignatures = new Set<string>();
+  let duplicatePageCount = 0;
+  let emptyPageCount = 0;
+  let fetchedCount = 0;
+
+  while (remaining-- > 0) {
+    if (options?.taskId && isDashboardTaskCancelled(options.taskId)) {
+      return;
+    }
+
+    if (options?.taskId) {
+      setDashboardTaskProgress(options.taskId, {
+        current: currentPage,
+        label: `抓取第 ${currentPage} 页`,
+        fetchedCount,
+      });
+    }
+
+    const { articleIds } = await refreshMpArticlesAndUpdateFeed(
+      mpId,
+      currentPage,
+    );
+    fetchedCount += articleIds.length;
+
+    if (options?.taskId) {
+      setDashboardTaskProgress(options.taskId, {
+        current: currentPage,
+        label: `抓取第 ${currentPage} 页`,
+        fetchedCount,
+      });
+    }
+
+    if (articleIds.length === 0) {
+      emptyPageCount += 1;
+      if (emptyPageCount >= FULL_FETCH_EMPTY_PAGE_STREAK_LIMIT) {
+        return;
+      }
+      currentPage += 1;
+      await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
+      continue;
+    }
+
+    emptyPageCount = 0;
+    const pageSignature = articleIds.join('|');
+    if (seenPageSignatures.has(pageSignature)) {
+      duplicatePageCount += 1;
+      if (duplicatePageCount >= 3) {
+        return;
+      }
+    } else {
+      seenPageSignatures.add(pageSignature);
+      duplicatePageCount = 0;
+    }
+
+    currentPage += 1;
+    await sleep(getEnv().UPDATE_DELAY_TIME * 1_000);
+  }
+}
+
+export async function analyzeFeedArticles(
+  mpId: string,
+  options?: {
+    taskId?: string;
+  },
+) {
+  const articles = await prisma.article.findMany({
+    where: {
+      mpId,
+      OR: [{ contentType: 'unknown' }, { textLength: 0 }, { sourceUrl: null }],
+    },
+    orderBy: [{ publishTime: 'desc' }, { id: 'desc' }],
+  });
+
+  for (const [index, article] of articles.entries()) {
+    if (options?.taskId && isDashboardTaskCancelled(options.taskId)) {
+      return;
+    }
+
+    if (options?.taskId) {
+      setDashboardTaskProgress(options.taskId, {
+        current: index + 1,
+        total: articles.length,
+        label: article.title,
+      });
+    }
+
+    try {
+      const sourceUrl = article.sourceUrl || getArticleSourceUrl(article.id);
+      const analysis = await analyzeArticlePage(sourceUrl);
+
+      await prisma.article.update({
+        where: { id: article.id },
+        data: {
+          sourceUrl,
+          contentType: analysis.contentType,
+          textLength: analysis.textLength,
+        },
+      });
+    } catch {
+      await prisma.article.update({
+        where: { id: article.id },
+        data: {
+          sourceUrl: article.sourceUrl || getArticleSourceUrl(article.id),
+          contentType: 'unknown',
+          textLength: 0,
+        },
+      });
+    }
+  }
 }

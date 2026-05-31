@@ -1,8 +1,8 @@
-import { notFound } from "next/navigation";
+import { notFound } from 'next/navigation';
 
-import { FeedsDashboard } from "@/components/dashboard/feeds-dashboard";
-import { resolveServerOriginUrl } from "@/lib/config";
-import { getFeedsDashboardData } from "@/lib/dashboard-data";
+import { FeedsDashboard } from '@/components/dashboard/feeds-dashboard';
+import { resolveServerOriginUrl } from '@/lib/config';
+import { getFeedsDashboardData } from '@/lib/dashboard-data';
 
 export default async function FeedDetailPage({
   params,
@@ -22,8 +22,9 @@ export default async function FeedDetailPage({
       selectedFeed={data.selectedFeed}
       initialArticles={data.initialArticles}
       initialNextCursor={data.initialNextCursor}
-      initialHistoryProgress={data.historyProgress}
-      initialIsRefreshingAll={data.isRefreshAllMpArticlesRunning}
+      initialTasks={data.initialTasks}
+      hasAvailableAccount={data.hasAvailableAccount}
+      articleCount={data.articleCount}
       serverOriginUrl={resolveServerOriginUrl()}
     />
   );

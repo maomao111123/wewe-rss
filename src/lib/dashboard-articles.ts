@@ -1,4 +1,8 @@
-import { prisma } from "@/lib/prisma";
+import { prisma } from '@/lib/prisma';
+import {
+  articleContentTypes,
+  type ArticleContentType,
+} from '@/lib/services/article-analysis';
 
 type CursorPayload = {
   id: string;
@@ -12,6 +16,9 @@ export type DashboardArticlesPage = {
     title: string;
     picUrl: string;
     publishTime: number;
+    contentType: ArticleContentType;
+    textLength: number;
+    sourceUrl: string | null;
     createdAt: Date;
     updatedAt: Date;
   }>;
@@ -19,7 +26,13 @@ export type DashboardArticlesPage = {
 };
 
 function encodeCursor(payload: CursorPayload) {
-  return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");
+  return Buffer.from(JSON.stringify(payload), 'utf8').toString('base64url');
+}
+
+function normalizeContentType(value: string): ArticleContentType {
+  return articleContentTypes.includes(value as ArticleContentType)
+    ? (value as ArticleContentType)
+    : 'unknown';
 }
 
 function decodeCursor(cursor?: string | null): CursorPayload | null {
@@ -29,9 +42,9 @@ function decodeCursor(cursor?: string | null): CursorPayload | null {
 
   try {
     const parsed = JSON.parse(
-      Buffer.from(cursor, "base64url").toString("utf8"),
+      Buffer.from(cursor, 'base64url').toString('utf8'),
     ) as CursorPayload;
-    if (!parsed?.id || typeof parsed.publishTime !== "number") {
+    if (!parsed?.id || typeof parsed.publishTime !== 'number') {
       return null;
     }
     return parsed;
@@ -65,15 +78,19 @@ export async function getDashboardArticlesPage(params: {
 
   const items = await prisma.article.findMany({
     where,
-    orderBy: [{ publishTime: "desc" }, { id: "desc" }],
+    orderBy: [{ publishTime: 'desc' }, { id: 'desc' }],
     take: limit + 1,
   });
+  const normalizedItems = items.map((item) => ({
+    ...item,
+    contentType: normalizeContentType(item.contentType),
+  }));
 
-  if (items.length <= limit) {
-    return { items };
+  if (normalizedItems.length <= limit) {
+    return { items: normalizedItems };
   }
 
-  const pageItems = items.slice(0, limit);
+  const pageItems = normalizedItems.slice(0, limit);
   const lastVisible = pageItems.at(-1);
 
   return {
